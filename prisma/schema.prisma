@@ -1,0 +1,193 @@
+// This is your Prisma schema file
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// USUARIOS - Registro rápido y simple
+model User {
+  id        String   @id @default(uuid())
+  name      String
+  phone     String   @unique
+  email     String?  @unique
+  password  String
+  location  String?  // Ubicación general del usuario
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  reports Report[]
+
+  @@index([phone])
+  @@index([email])
+}
+
+// REPORTES - Animal perdido, encontrado o herido
+model Report {
+  id          String       @id @default(uuid())
+  type        ReportType   // LOST, FOUND, INJURED
+  status      ReportStatus @default(ACTIVE) // ACTIVE, RESOLVED, CLOSED
+  
+  // Datos del animal
+  animalType  String       // perro, gato, etc
+  description String       @db.Text
+  photoUrl    String?
+  
+  // Ubicación del reporte
+  latitude    Float
+  longitude   Float
+  address     String
+  district    String
+  province    String
+  
+  // Información de contacto
+  contactPhone String
+  contactName  String
+  
+  // Metadata
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relaciones
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  
+  lostMatches  Match[]  @relation("LostReportMatches")
+  foundMatches Match[]  @relation("FoundReportMatches")
+  
+  @@index([type])
+  @@index([status])
+  @@index([district])
+  @@index([province])
+  @@index([latitude, longitude])
+  @@index([createdAt])
+}
+
+enum ReportType {
+  LOST     // Mascota perdida
+  FOUND    // Animal encontrado
+  INJURED  // Animal herido/en peligro
+}
+
+enum ReportStatus {
+  ACTIVE   // Activo
+  RESOLVED // Resuelto (encontrado/rescatado)
+  CLOSED   // Cerrado
+}
+
+// MATCHES - Cuando un LOST coincide con un FOUND
+model Match {
+  id            String   @id @default(uuid())
+  
+  lostReportId  String
+  foundReportId String
+  
+  lostReport    Report   @relation("LostReportMatches", fields: [lostReportId], references: [id])
+  foundReport   Report   @relation("FoundReportMatches", fields: [foundReportId], references: [id])
+  
+  // Scoring del match (qué tan probable es que coincidan)
+  matchScore    Float    // 0-100
+  distance      Float    // distancia en km entre reportes
+  
+  // Control de notificación
+  notified      Boolean  @default(false)
+  notifiedAt    DateTime?
+  
+  createdAt     DateTime @default(now())
+  
+  @@unique([lostReportId, foundReportId])
+  @@index([lostReportId])
+  @@index([foundReportId])
+  @@index([notified])
+}
+
+// VETERINARIAS - Con modelo de negocio
+model Veterinary {
+  id          String           @id @default(uuid())
+  name        String
+  address     String
+  district    String
+  province    String
+  latitude    Float
+  longitude   Float
+  
+  phone       String
+  email       String?
+  whatsapp    String?
+  
+  // Horarios y servicios
+  openHours   String?          // JSON con horarios
+  services    String[]         // emergencias, consultas, cirugía, etc
+  
+  // Plan de patrocinio
+  plan        VeterinaryPlan   @default(FREE)
+  planStartDate DateTime?
+  planEndDate   DateTime?
+  isActive    Boolean          @default(true)
+  
+  // Metadata
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  
+  @@index([district])
+  @@index([province])
+  @@index([plan])
+  @@index([isActive])
+  @@index([latitude, longitude])
+}
+
+enum VeterinaryPlan {
+  FREE      // Aparecen después de las patrocinadas
+  BASIC     // Aparecen destacadas
+  PREMIUM   // Primeras en la lista + badge
+  ENTERPRISE // Todo lo anterior + reportes directos
+}
+
+// REFUGIOS - Siempre gratuitos
+model Shelter {
+  id          String   @id @default(uuid())
+  name        String
+  address     String
+  district    String
+  province    String
+  latitude    Float
+  longitude   Float
+  
+  phone       String
+  email       String?
+  whatsapp    String?
+  
+  capacity    Int?     // Capacidad de animales
+  services    String[] // temporal, adopción, veterinario, etc
+  
+  isActive    Boolean  @default(true)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@index([district])
+  @@index([province])
+  @@index([isActive])
+}
+
+// ADMIN - Para gestión de veterinarias y refugios
+model Admin {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  role      AdminRole @default(ADMIN)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([email])
+}
+
+enum AdminRole {
+  SUPER_ADMIN
+  ADMIN
+}
