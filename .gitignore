@@ -30,8 +30,8 @@ dist/
 build/
 
 # Prisma
-prisma/migrations/
-.prisma/
+#prisma/migrations/
+#.prisma/
 
 # Testing
 coverage/
