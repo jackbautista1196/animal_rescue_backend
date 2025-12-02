@@ -21,8 +21,8 @@ export const createReport = async (req, res) => {
 
     // Validación básica
     if (!type || !animalType || !description || !latitude || !longitude || !address || !district || !contactPhone || !contactName) {
-      return res.status(400).json({ 
-        error: 'Faltan campos requeridos' 
+      return res.status(400).json({
+        error: 'Faltan campos requeridos'
       });
     }
 
@@ -94,7 +94,7 @@ async function findMatches(newReport) {
 
         // Solo crear match si el score es mayor a 50
         if (matchScore >= 50) {
-          const matchData = newReport.type === 'LOST' 
+          const matchData = newReport.type === 'LOST'
             ? { lostReportId: newReport.id, foundReportId: potentialMatch.id }
             : { lostReportId: potentialMatch.id, foundReportId: newReport.id };
 
@@ -118,12 +118,12 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
   const R = 6371; // Radio de la Tierra en km
   const dLat = toRad(lat2 - lat1);
   const dLon = toRad(lon2 - lon1);
-  
-  const a = 
+
+  const a =
     Math.sin(dLat / 2) * Math.sin(dLat / 2) +
     Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
     Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  
+
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
 }
@@ -158,8 +158,8 @@ export const getNearbyReports = async (req, res) => {
     const { latitude, longitude, radius = 10, type, status = 'ACTIVE' } = req.query;
 
     if (!latitude || !longitude) {
-      return res.status(400).json({ 
-        error: 'Se requieren coordenadas (latitude, longitude)' 
+      return res.status(400).json({
+        error: 'Se requieren coordenadas (latitude, longitude)'
       });
     }
 
@@ -278,7 +278,7 @@ export const getMyReports = async (req, res) => {
 export const updateReportStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const { status } = req.body;
+    const { status, resolutionNote, shareAsSuccess } = req.body;
 
     // Verificar que el reporte pertenece al usuario
     const report = await prisma.report.findUnique({
@@ -293,18 +293,118 @@ export const updateReportStatus = async (req, res) => {
       return res.status(403).json({ error: 'No tienes permiso para actualizar este reporte' });
     }
 
+    // Preparar datos para actualizar
+    const updateData = { status };
+
+    // Si se marca como RESOLVED, agregar fecha de resolución
+    if (status === 'RESOLVED') {
+      updateData.resolvedAt = new Date();
+
+      // Agregar nota de resolución si existe
+      if (resolutionNote) {
+        updateData.resolutionNote = resolutionNote;
+      }
+
+      // Marcar si puede compartirse como caso de éxito
+      if (shareAsSuccess !== undefined) {
+        updateData.shareAsSuccess = shareAsSuccess;
+      }
+    }
+
     const updatedReport = await prisma.report.update({
       where: { id },
-      data: { status }
+      data: updateData
     });
 
     res.json({
-      message: 'Estado actualizado exitosamente',
+      message: status === 'RESOLVED'
+        ? '¡Felicidades! Caso marcado como resuelto'
+        : 'Estado actualizado exitosamente',
       report: updatedReport
     });
 
   } catch (error) {
     console.error('Error en updateReportStatus:', error);
     res.status(500).json({ error: 'Error al actualizar reporte' });
+  }
+};
+
+// Obtener estadísticas globales (para el banner)
+export const getGlobalStats = async (req, res) => {
+  try {
+    // Contar casos resueltos
+    const resolvedCount = await prisma.report.count({
+      where: { status: 'RESOLVED' }
+    });
+
+    // Contar por tipo de reporte resuelto
+    const lostResolved = await prisma.report.count({
+      where: {
+        type: 'LOST',
+        status: 'RESOLVED'
+      }
+    });
+
+    const foundResolved = await prisma.report.count({
+      where: {
+        type: 'FOUND',
+        status: 'RESOLVED'
+      }
+    });
+
+    const injuredResolved = await prisma.report.count({
+      where: {
+        type: 'INJURED',
+        status: 'RESOLVED'
+      }
+    });
+
+    // Contar reportes activos
+    const activeReports = await prisma.report.count({
+      where: { status: 'ACTIVE' }
+    });
+
+    // Contar matches exitosos
+    const successfulMatches = await prisma.match.count({
+      where: { status: 'CONTACTED' }
+    });
+
+    // Casos de éxito recientes (últimos 5)
+    const recentSuccesses = await prisma.report.findMany({
+      where: {
+        status: 'RESOLVED',
+        shareAsSuccess: true
+      },
+      select: {
+        id: true,
+        type: true,
+        animalType: true,
+        description: true,
+        photoUrl: true,
+        resolvedAt: true,
+        resolutionNote: true,
+        district: true
+      },
+      orderBy: {
+        resolvedAt: 'desc'
+      },
+      take: 5
+    });
+
+    res.json({
+      totalResolved: resolvedCount,
+      byType: {
+        lost: lostResolved,
+        found: foundResolved,
+        injured: injuredResolved
+      },
+      activeReports,
+      successfulMatches,
+      recentSuccesses
+    });
+
+  } catch (error) {
+    console.error('Error en getGlobalStats:', error);
+    res.status(500).json({ error: 'Error al obtener estadísticas' });
   }
 };

@@ -48,6 +48,11 @@ model Report {
   contactPhone String
   contactName  String
   
+  // Resolución del caso (nuevo)
+  resolvedAt      DateTime?
+  resolutionNote  String?   @db.Text
+  shareAsSuccess  Boolean   @default(false)
+  
   // Metadata
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -65,6 +70,7 @@ model Report {
   @@index([province])
   @@index([latitude, longitude])
   @@index([createdAt])
+  @@index([resolvedAt])
 }
 
 enum ReportType {
@@ -81,28 +87,38 @@ enum ReportStatus {
 
 // MATCHES - Cuando un LOST coincide con un FOUND
 model Match {
-  id            String   @id @default(uuid())
+  id            String      @id @default(uuid())
   
   lostReportId  String
   foundReportId String
   
-  lostReport    Report   @relation("LostReportMatches", fields: [lostReportId], references: [id])
-  foundReport   Report   @relation("FoundReportMatches", fields: [foundReportId], references: [id])
+  lostReport    Report      @relation("LostReportMatches", fields: [lostReportId], references: [id])
+  foundReport   Report      @relation("FoundReportMatches", fields: [foundReportId], references: [id])
   
   // Scoring del match (qué tan probable es que coincidan)
-  matchScore    Float    // 0-100
-  distance      Float    // distancia en km entre reportes
+  matchScore    Float       // 0-100
+  distance      Float       // distancia en km entre reportes
+  
+  // Estado del match
+  status        MatchStatus @default(PENDING)
   
   // Control de notificación
-  notified      Boolean  @default(false)
+  notified      Boolean     @default(false)
   notifiedAt    DateTime?
   
-  createdAt     DateTime @default(now())
+  createdAt     DateTime    @default(now())
   
   @@unique([lostReportId, foundReportId])
   @@index([lostReportId])
   @@index([foundReportId])
   @@index([notified])
+  @@index([status])
+}
+
+enum MatchStatus {
+  PENDING    // Pendiente de revisar
+  CONTACTED  // Usuarios ya se contactaron
+  REJECTED   // No es el mismo animal
 }
 
 // VETERINARIAS - Con modelo de negocio
