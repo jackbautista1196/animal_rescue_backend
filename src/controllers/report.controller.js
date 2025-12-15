@@ -63,10 +63,8 @@ export const createReport = async (req, res) => {
 // Función para detectar matches entre reportes LOST y FOUND
 async function findMatches(newReport) {
   try {
-    // Determinar el tipo opuesto
     const oppositeType = newReport.type === 'LOST' ? 'FOUND' : 'LOST';
 
-    // Buscar reportes del tipo opuesto en la misma zona (últimos 30 días)
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
@@ -79,7 +77,6 @@ async function findMatches(newReport) {
       }
     });
 
-    // Calcular score y crear matches
     for (const potentialMatch of potentialMatches) {
       const distance = calculateDistance(
         newReport.latitude,
@@ -88,12 +85,12 @@ async function findMatches(newReport) {
         potentialMatch.longitude
       );
 
-      // Solo considerar si está dentro de 5km
-      if (distance <= 5) {
+      // Cambiar a 2km por defecto
+      if (distance <= 2) {
         const matchScore = calculateMatchScore(newReport, potentialMatch, distance);
 
-        // Solo crear match si el score es mayor a 50
-        if (matchScore >= 50) {
+        // Reducir umbral a 30 para capturar más matches
+        if (matchScore >= 30) {
           const matchData = newReport.type === 'LOST'
             ? { lostReportId: newReport.id, foundReportId: potentialMatch.id }
             : { lostReportId: potentialMatch.id, foundReportId: newReport.id };
@@ -128,28 +125,113 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
+function compareDescriptions(desc1, desc2) {
+  if (!desc1 || !desc2) return 0;
+
+  // Convertir a minúsculas y limpiar
+  desc1 = desc1.toLowerCase().trim();
+  desc2 = desc2.toLowerCase().trim();
+
+  let matchPoints = 0;
+
+  // Definir palabras clave y sinónimos
+  const colorKeywords = {
+    negro: ['negro', 'oscuro', 'dark', 'prieto', 'negruzco'],
+    blanco: ['blanco', 'claro', 'blanquito', 'blanca'],
+    marron: ['marrón', 'café', 'castaño', 'brown', 'color café'],
+    gris: ['gris', 'grey', 'gray', 'plomo', 'plateado'],
+    amarillo: ['amarillo', 'dorado', 'rubio', 'golden'],
+    naranja: ['naranja', 'anaranjado', 'naranjado']
+  };
+
+  const sizeKeywords = {
+    grande: ['grande', 'gordo', 'big', 'robusto', 'grandote', 'enorme'],
+    pequeno: ['pequeño', 'chico', 'mini', 'tiny', 'chiquito', 'pequeñito'],
+    mediano: ['mediano', 'medio', 'regular', 'normal']
+  };
+
+  const commonBreeds = [
+    'labrador', 'pitbull', 'schnauzer', 'cocker', 'golden',
+    'pastor', 'poodle', 'bulldog', 'chihuahua', 'beagle',
+    'dálmata', 'husky', 'boxer', 'rottweiler', 'doberman'
+  ];
+
+  // Buscar coincidencia de color (15 puntos)
+  for (const [color, synonyms] of Object.entries(colorKeywords)) {
+    const hasColor1 = synonyms.some(syn => desc1.includes(syn));
+    const hasColor2 = synonyms.some(syn => desc2.includes(syn));
+    if (hasColor1 && hasColor2) {
+      matchPoints += 15;
+      break;
+    }
+  }
+
+  // Buscar coincidencia de tamaño (10 puntos)
+  for (const [size, synonyms] of Object.entries(sizeKeywords)) {
+    const hasSize1 = synonyms.some(syn => desc1.includes(syn));
+    const hasSize2 = synonyms.some(syn => desc2.includes(syn));
+    if (hasSize1 && hasSize2) {
+      matchPoints += 10;
+      break;
+    }
+  }
+
+  // Buscar coincidencia de raza (20 puntos)
+  for (const breed of commonBreeds) {
+    if (desc1.includes(breed) && desc2.includes(breed)) {
+      matchPoints += 20;
+      break;
+    }
+  }
+
+  // Coincidencia de palabras comunes (5 puntos)
+  const words1 = desc1.split(/\s+/);
+  const words2 = desc2.split(/\s+/);
+  const commonWords = words1.filter(word =>
+    word.length > 3 && words2.includes(word)
+  );
+
+  if (commonWords.length >= 2) {
+    matchPoints += 5;
+  }
+
+  return matchPoints;
+}
+
 function toRad(degrees) {
   return degrees * (Math.PI / 180);
 }
 
 // Calcular score de match (qué tan probable es que coincidan)
 function calculateMatchScore(report1, report2, distance) {
-  let score = 100;
+  let score = 0;
 
-  // Penalizar por distancia
-  score -= distance * 5; // -5 puntos por cada km
-
-  // Bonus si el tipo de animal coincide
-  if (report1.animalType.toLowerCase() === report2.animalType.toLowerCase()) {
+  // Puntos por distancia (40 puntos máximo)
+  if (distance <= 0.5) {
+    score += 40;
+  } else if (distance <= 1) {
+    score += 35;
+  } else if (distance <= 2) {
+    score += 30;
+  } else {
     score += 20;
   }
 
-  // Penalizar por tiempo entre reportes
+  // Puntos por tipo de animal (10 puntos)
+  if (report1.animalType.toLowerCase() === report2.animalType.toLowerCase()) {
+    score += 10;
+  }
+
+  // Puntos por comparación de descripción (50 puntos máximo)
+  const descriptionScore = compareDescriptions(report1.description, report2.description);
+  score += descriptionScore;
+
+  // Penalizar por tiempo (máximo -10 puntos)
   const timeDiff = Math.abs(new Date(report1.createdAt) - new Date(report2.createdAt));
   const daysDiff = timeDiff / (1000 * 60 * 60 * 24);
-  score -= daysDiff * 2; // -2 puntos por cada día de diferencia
+  score -= Math.min(daysDiff * 2, 10);
 
-  return Math.max(0, Math.min(100, score));
+  return Math.max(0, Math.min(100, Math.round(score)));
 }
 
 // Obtener reportes cercanos
